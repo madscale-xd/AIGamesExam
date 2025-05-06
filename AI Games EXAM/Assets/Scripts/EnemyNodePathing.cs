@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class EnemyNodePathing : MonoBehaviour
 {
@@ -32,7 +33,6 @@ public class EnemyNodePathing : MonoBehaviour
     [Header("Obstacle Avoidance Settings")]
     public float obstacleDetectionDistance = 2f;
     public float avoidStrength = 3f;
-    public LayerMask obstacleMask;
 
     void Start()
     {
@@ -116,10 +116,48 @@ public class EnemyNodePathing : MonoBehaviour
         Vector3 origin = transform.position + Vector3.up * 0.5f;
         Vector3 forward = moveDirection.normalized;
 
-        if (Physics.Raycast(origin, forward, out RaycastHit hit, obstacleDetectionDistance, obstacleMask))
+        if (Physics.Raycast(origin, forward, out RaycastHit hit, obstacleDetectionDistance, obstructionMask))
         {
             Debug.DrawRay(origin, forward * obstacleDetectionDistance, Color.red);
-            transform.position += Vector3.zero; // Stop movement when blocked.
+
+            // Find nearest visible node (like in your OnCollisionEnter)
+            int bestIndex = -1;
+            float bestDistance = float.MaxValue;
+
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                Vector3 dirToNode = nodes[i].position - transform.position;
+                float dist = dirToNode.magnitude;
+                float angle = Vector3.Angle(transform.forward, dirToNode);
+
+                if (dist <= viewDistance && angle <= fieldOfView / 2f)
+                {
+                    if (!Physics.Raycast(transform.position, dirToNode.normalized, dist, obstructionMask))
+                    {
+                        if (dist < bestDistance)
+                        {
+                            bestDistance = dist;
+                            bestIndex = i;
+                        }
+                    }
+                }
+            }
+
+            if (bestIndex != -1)
+            {
+                currentNodeIndex = bestIndex;
+                AddToHistory(currentNodeIndex);
+
+                // Rotate toward that node
+                RotateTowardsTarget(nodes[bestIndex].position);
+            }
+            else
+            {
+                // Can't find any visible nodes — maybe just rotate away
+                transform.Rotate(0, 180f, 0);
+            }
+
+            return;
         }
         else
         {
@@ -127,7 +165,6 @@ public class EnemyNodePathing : MonoBehaviour
             transform.position += forward * speed * Time.deltaTime;
         }
     }
-
     void RotateTowardsTarget(Vector3 targetPosition)
     {
         Vector3 directionToTarget = (targetPosition - transform.position).normalized;
@@ -228,6 +265,12 @@ public class EnemyNodePathing : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
+        if (collision.gameObject.CompareTag("Player"))
+        {
+            SceneManager.LoadScene("EndMenu");
+             Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.None; // Ensure it's unlocked
+        }
         if (collision.collider.CompareTag("Obstacle"))
         {
             Debug.Log("Collided with obstacle — rotating 180° and finding nearest visible node");
